@@ -84,12 +84,33 @@ i32 fsOpen(str fname) {
 // ============================================================================
 i32 fsRead(i32 fd, i32 numb, void* buf) {
 
-  // ++++++++++++++++++++++++
-  // Insert your code here
-  // ++++++++++++++++++++++++
-
-  FATAL(ENYI);                                  // Not Yet Implemented!
-  return 0;
+  i32 bufferIndex = 0;
+  i32 currOffset = fsTell(fd);
+  i8* bounceBuffer = malloc(sizeof(i8)*BYTESPERBLOCK); //read every block we use into bounce buffer and send portion we need into buf
+  i32 startByte = currOffset;
+  i32 endByte = currOffset + numb;
+  i32 size = fsSize(fd);
+  if(currOffset + numb > size) endByte = size; //not enough blocks to store currOffset + numb
+  i32 inum = bfsFdToInum(fd);
+  for(int i = startByte; i <= endByte; i += BYTESPERBLOCK){
+    i32 FBN = i/BYTESPERBLOCK;
+    bfsRead(inum, FBN, bounceBuffer);//dont need to return just worry about storing into bounce buffer
+    i32 startByteOfBlock = FBN * 512;
+    i32 endByteOfBlock = startByteOfBlock + 512;  
+    
+    if(startByteOfBlock < startByte){
+      startByteOfBlock = startByte;  
+    }
+    if(endByteOfBlock > endByte){
+      endByteOfBlock = endByte;
+    }
+    memcpy(&buf[bufferIndex], &bounceBuffer[startByteOfBlock%512], endByteOfBlock - startByteOfBlock);
+    //bouncebuffer is an array of bytes and we are accessing startByteOfBlockth indice on in that buffer
+    //as ampersand returns a pointer to the adress of bounceBuffer at startByteOfBlock index
+    bufferIndex += endByteOfBlock - startByteOfBlock;
+  } 
+  bfsSetCursor(inum, currOffset+bufferIndex);                                 
+  return bufferIndex;
 }
 
 
@@ -158,10 +179,39 @@ i32 fsSize(i32 fd) {
 // ============================================================================
 i32 fsWrite(i32 fd, i32 numb, void* buf) {
 
-  // ++++++++++++++++++++++++
-  // Insert your code here
-  // ++++++++++++++++++++++++
-
-  FATAL(ENYI);                                  // Not Yet Implemented!
+  i32 bufferIndex = 0;
+  i32 currOffset = fsTell(fd);
+  i8* bounceBuffer = malloc(sizeof(i8)*BYTESPERBLOCK); //read every block we use into bounce buffer and send portion we need into buf
+  i32 startByte = currOffset;
+  i32 endByte = currOffset + numb;
+  i32 size = fsSize(fd);
+  
+  i32 inum = bfsFdToInum(fd);
+  for(int i = startByte; i <= endByte; i += BYTESPERBLOCK){
+    i32 FBN = i/BYTESPERBLOCK;
+    
+    i32 startByteOfBlock = FBN * 512;
+    i32 endByteOfBlock = startByteOfBlock + 512;  
+    if(startByteOfBlock >= size){ //extend the file if we dont have enough blocks yet
+      bfsAllocBlock(inum, FBN);
+    }
+    bfsRead(inum, FBN, bounceBuffer);//dont need to return just worry about storing into bounce buffer
+    
+    if(startByteOfBlock < startByte){
+      startByteOfBlock = startByte;  
+    }
+    if(endByteOfBlock > endByte){
+      endByteOfBlock = endByte;
+    }
+    memcpy(&bounceBuffer[startByteOfBlock%BYTESPERBLOCK], &buf[bufferIndex], endByteOfBlock - startByteOfBlock);
+    i32 dbn = bfsFbnToDbn(inum, FBN);
+    bioWrite(dbn, bounceBuffer); //writes bounceBuffers info into the block specified by dbn; we can only write to a whole block
+    //memcpy(&buf[bufferIndex], &bounceBuffer[startByteOfBlock%512], endByteOfBlock - startByteOfBlock);
+    //bouncebuffer is an array of bytes and we are accessing startByteOfBlockth indice on in that buffer
+    //as ampersand returns a pointer to the adress of bounceBuffer at startByteOfBlock index
+    bufferIndex += endByteOfBlock - startByteOfBlock;
+  }           
+  bfsSetCursor(inum, currOffset+bufferIndex);   
+  if(currOffset + bufferIndex > size) bfsSetSize(inum, currOffset + bufferIndex);                                                   
   return 0;
 }
